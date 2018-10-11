@@ -1,0 +1,71 @@
+#!/bin/bash
+#
+# Attempt to convert yaml to json using real yaml libraries
+#
+# Order of Attempts:
+# * python
+# * haskell
+set -o errexit
+set -o pipefail
+set -u
+
+function command_help() {
+  {
+      echo "\
+        $0 [-h|--help] YAML_FILE
+      "
+  } 1>&2
+}
+
+function error_msg() {
+  {
+      echo ""
+      echo "ERROR: $*"
+      echo ""
+  } 1>&2
+}
+
+function exit_msg() {
+  error_msg "$@"
+  command_help
+  exit 1
+}
+
+
+if [[ -z "${1+undefined-guard}" ]] ; then
+  exit_msg "expected a YAML file as an argument"
+fi
+YAML=$1
+JSON=$(echo "$YAML" | sed -e 's/\.yaml$/.json/')
+if [[ "$YAML" == "$JSON" ]] ; then
+  exit_msg "expected a YAML file but got JSON"
+fi
+
+if [[ ! -f $YAML ]] ; then
+  exit_msg "expected YAML file to exist: $YAML"
+fi
+
+PYTHON_IMPORT="import sys, yaml, json;"
+if output=$(python3 -c "$PYTHON_IMPORT" 2>/dev/null) ; then
+  PYTHON_CONVERT="json.dump(yaml.load(sys.stdin), sys.stdout, indent=None)"
+  echo "python3 -c $PYTHON_IMPORT $PYTHON_CONVERT" >&2
+  python3 -c "$PYTHON_IMPORT $PYTHON_CONVERT" < "$YAML"
+else
+  {
+      echo "$output"
+      if ! command -v stack >/dev/null ; then
+        exit_msg "need to load a yaml file. Did not find python with yaml or stack"
+      fi
+
+      if ! stack exec -- which yaml2json >&2 2>/dev/null ; then
+          stack install yaml || stack setup && stack install yaml
+      fi
+  } 1>&2
+
+  echo "stack exec -- yaml2json $YAML" >&2
+  if ! output=$(stack exec -- yaml2json "$YAML") ; then
+        echo "$output" >&2
+        exit_msg "error parsing YAML file"
+  fi
+  echo "$output"
+fi
